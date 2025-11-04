@@ -1,0 +1,4 @@
+numpy==1.26.2
+pygame==2.5.2
+scipy==1.11.4
+pyswip>=0.2.11

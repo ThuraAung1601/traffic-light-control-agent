@@ -1,8 +1,15 @@
 import numpy as np
 from trafficSim import *
-import csv
 
 sim = Simulation()
+
+# Initialize ZODB logging
+sim.start_logging(
+    db_path='traffic_simulation.fs',
+    vehicle_rate=400,
+    description='4-way intersection with intelligent traffic control',
+    num_roads=36
+)
 
 # Play with these
 n = 20      # Iterations for road turns

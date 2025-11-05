@@ -4,8 +4,10 @@ Creates visualization reports from ZODB stored data
 """
 
 import os
+import json
 import datetime
 from collections import defaultdict
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 
 def generate_html_report(db_logger, output_path=None):
@@ -102,424 +104,65 @@ def _extract_session_data(session):
 
 
 def _generate_html(session, data):
-    """Generate HTML content with embedded visualizations"""
+    """Generate HTML content using Jinja2 template"""
     
     summary = session.get_summary()
     
-    html = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Traffic Simulation Report - {summary['session_id']}</title>
-    <style>
-        body {{
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 20px;
-            background-color: #f5f5f5;
-        }}
-        .container {{
-            max-width: 1400px;
-            margin: 0 auto;
-            background-color: white;
-            padding: 30px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }}
-        h1 {{
-            color: #333;
-            border-bottom: 3px solid #4CAF50;
-            padding-bottom: 10px;
-        }}
-        h2 {{
-            color: #555;
-            margin-top: 30px;
-            border-bottom: 2px solid #ddd;
-            padding-bottom: 8px;
-        }}
-        .summary {{
-            background-color: #f9f9f9;
-            padding: 20px;
-            border-left: 4px solid #4CAF50;
-            margin: 20px 0;
-        }}
-        .summary-item {{
-            margin: 10px 0;
-            font-size: 16px;
-        }}
-        .summary-label {{
-            font-weight: bold;
-            color: #333;
-            display: inline-block;
-            width: 200px;
-        }}
-        .chart-container {{
-            margin: 30px 0;
-            border: 1px solid #ddd;
-            padding: 20px;
-            background-color: #fafafa;
-        }}
-        .chart {{
-            width: 100%;
-            height: 400px;
-            position: relative;
-        }}
-        canvas {{
-            border: 1px solid #ccc;
-            background-color: white;
-        }}
-        .stats-grid {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            margin: 20px 0;
-        }}
-        .stat-card {{
-            background-color: #f0f0f0;
-            padding: 20px;
-            border-radius: 8px;
-            text-align: center;
-        }}
-        .stat-value {{
-            font-size: 36px;
-            font-weight: bold;
-            color: #4CAF50;
-        }}
-        .stat-label {{
-            font-size: 14px;
-            color: #666;
-            margin-top: 10px;
-        }}
-        .rules-table {{
-            width: 100%;
-            border-collapse: collapse;
-            margin: 20px 0;
-        }}
-        .rules-table th {{
-            background-color: #4CAF50;
-            color: white;
-            padding: 12px;
-            text-align: left;
-        }}
-        .rules-table td {{
-            padding: 10px;
-            border-bottom: 1px solid #ddd;
-        }}
-        .rules-table tr:hover {{
-            background-color: #f5f5f5;
-        }}
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>Traffic Simulation Report</h1>
-        
-        <div class="summary">
-            <h2>Session Summary</h2>
-            <div class="summary-item">
-                <span class="summary-label">Session ID:</span>
-                <span>{summary['session_id']}</span>
-            </div>
-            <div class="summary-item">
-                <span class="summary-label">Start Time:</span>
-                <span>{summary['start_time']}</span>
-            </div>
-            <div class="summary-item">
-                <span class="summary-label">End Time:</span>
-                <span>{summary['end_time']}</span>
-            </div>
-            <div class="summary-item">
-                <span class="summary-label">Total Data Points:</span>
-                <span>{summary['total_records']}</span>
-            </div>
-            <div class="summary-item">
-                <span class="summary-label">Signal Changes:</span>
-                <span>{summary['total_signal_records']}</span>
-            </div>
-            {_generate_metadata_html(summary.get('metadata', {}))}
-        </div>
-        
-        <div class="stats-grid">
-            {_generate_stats_cards(data)}
-        </div>
-        
-        <h2>Traffic Flow Over Time</h2>
-        <div class="chart-container">
-            <canvas id="vehiclesChart" class="chart"></canvas>
-        </div>
-        
-        <h2>Queue Lengths by Direction</h2>
-        <div class="chart-container">
-            <canvas id="queuesChart" class="chart"></canvas>
-        </div>
-        
-        <h2>Flow Rates by Direction</h2>
-        <div class="chart-container">
-            <canvas id="flowRatesChart" class="chart"></canvas>
-        </div>
-        
-        <h2>Signal Pattern Distribution</h2>
-        <div class="chart-container">
-            <canvas id="patternsChart" class="chart"></canvas>
-        </div>
-        
-        <h2>Rules Fired Statistics</h2>
-        {_generate_rules_table(data['rules_fired'])}
-    </div>
+    # Get the directory where this script is located
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    template_dir = os.path.join(script_dir, 'templates')
     
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-    <script>
-        const data = {_data_to_json(data)};
-        
-        // Convert times to integers
-        data.times = data.times.map(t => Math.floor(t));
-        
-        // Chart 1: Vehicles Over Time
-        new Chart(document.getElementById('vehiclesChart'), {{
-            type: 'line',
-            data: {{
-                labels: data.times,
-                datasets: [
-                    {{
-                        label: 'Vehicles Passed',
-                        data: data.vehicles_passed,
-                        borderColor: 'rgb(75, 192, 192)',
-                        backgroundColor: 'rgba(75, 192, 192, 0.1)',
-                        tension: 0.1
-                    }},
-                    {{
-                        label: 'Vehicles Present',
-                        data: data.vehicles_present,
-                        borderColor: 'rgb(255, 99, 132)',
-                        backgroundColor: 'rgba(255, 99, 132, 0.1)',
-                        tension: 0.1
-                    }}
-                ]
-            }},
-            options: {{
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {{
-                    title: {{
-                        display: true,
-                        text: 'Vehicle Count Over Time'
-                    }}
-                }},
-                scales: {{
-                    x: {{
-                        title: {{ display: true, text: 'Time (seconds)' }}
-                    }},
-                    y: {{
-                        title: {{ display: true, text: 'Number of Vehicles' }}
-                    }}
-                }}
-            }}
-        }});
-        
-        // Chart 2: Queue Lengths
-        const queueDatasets = [];
-        const directions = ['north', 'south', 'east', 'west'];
-        const directionColors = {{
-            'north': 'rgb(54, 162, 235)',
-            'south': 'rgb(255, 99, 132)',
-            'east': 'rgb(75, 192, 192)',
-            'west': 'rgb(255, 159, 64)'
-        }};
-        
-        directions.forEach(dir => {{
-            if (data.queues[dir] && data.queues[dir].length > 0) {{
-                queueDatasets.push({{
-                    label: dir.charAt(0).toUpperCase() + dir.slice(1),
-                    data: data.queues[dir],
-                    borderColor: directionColors[dir],
-                    backgroundColor: directionColors[dir].replace('rgb', 'rgba').replace(')', ', 0.1)'),
-                    tension: 0.1
-                }});
-            }}
-        }});
-        
-        new Chart(document.getElementById('queuesChart'), {{
-            type: 'line',
-            data: {{
-                labels: data.times,
-                datasets: queueDatasets
-            }},
-            options: {{
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {{
-                    title: {{
-                        display: true,
-                        text: 'Queue Lengths by Direction'
-                    }}
-                }},
-                scales: {{
-                    x: {{
-                        title: {{ display: true, text: 'Time (seconds)' }}
-                    }},
-                    y: {{
-                        title: {{ display: true, text: 'Queue Length' }}
-                    }}
-                }}
-            }}
-        }});
-        
-        // Chart 3: Flow Rates
-        const flowDatasets = [];
-        directions.forEach(dir => {{
-            if (data.flow_rates[dir] && data.flow_rates[dir].length > 0) {{
-                flowDatasets.push({{
-                    label: dir.charAt(0).toUpperCase() + dir.slice(1),
-                    data: data.flow_rates[dir],
-                    borderColor: directionColors[dir],
-                    backgroundColor: directionColors[dir].replace('rgb', 'rgba').replace(')', ', 0.1)'),
-                    tension: 0.1
-                }});
-            }}
-        }});
-        
-        new Chart(document.getElementById('flowRatesChart'), {{
-            type: 'line',
-            data: {{
-                labels: data.times,
-                datasets: flowDatasets
-            }},
-            options: {{
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {{
-                    title: {{
-                        display: true,
-                        text: 'Traffic Flow Rates by Direction'
-                    }}
-                }},
-                scales: {{
-                    x: {{
-                        title: {{ display: true, text: 'Time (seconds)' }}
-                    }},
-                    y: {{
-                        title: {{ display: true, text: 'Flow Rate (vehicles/second)' }}
-                    }}
-                }}
-            }}
-        }});
-        
-        // Chart 4: Pattern Distribution
-        const patternCounts = {{}};
-        data.patterns.forEach(p => {{
-            patternCounts[p] = (patternCounts[p] || 0) + 1;
-        }});
-        
-        new Chart(document.getElementById('patternsChart'), {{
-            type: 'bar',
-            data: {{
-                labels: Object.keys(patternCounts).sort((a, b) => a - b),
-                datasets: [{{
-                    label: 'Usage Count',
-                    data: Object.keys(patternCounts).sort((a, b) => a - b).map(k => patternCounts[k]),
-                    backgroundColor: 'rgba(75, 192, 192, 0.6)',
-                    borderColor: 'rgb(75, 192, 192)',
-                    borderWidth: 1
-                }}]
-            }},
-            options: {{
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {{
-                    title: {{
-                        display: true,
-                        text: 'Signal Pattern Usage Distribution'
-                    }}
-                }},
-                scales: {{
-                    x: {{
-                        title: {{ display: true, text: 'Pattern Number' }}
-                    }},
-                    y: {{
-                        title: {{ display: true, text: 'Count' }}
-                    }}
-                }}
-            }}
-        }});
-    </script>
-</body>
-</html>
-"""
+    # Set up Jinja2 environment
+    env = Environment(
+        loader=FileSystemLoader(template_dir),
+        autoescape=select_autoescape(['html', 'xml'])
+    )
+    
+    # Load template
+    template = env.get_template('report.html')
+    
+    # Prepare stats cards
+    stats_cards = _prepare_stats_cards(data)
+    
+    # Prepare rules fired data (sorted by count, descending)
+    rules_fired = sorted(data['rules_fired'].items(), key=lambda x: x[1], reverse=True)
+    
+    # Convert data to JSON for JavaScript
+    data_json = _data_to_json(data)
+    
+    # Render template
+    html = template.render(
+        summary=summary,
+        metadata=summary.get('metadata', {}),
+        stats_cards=stats_cards,
+        rules_fired=rules_fired,
+        data_json=data_json
+    )
+    
     return html
 
 
-def _generate_metadata_html(metadata):
-    """Generate HTML for session metadata"""
-    if not metadata:
-        return ""
-    
-    html = ""
-    for key, value in metadata.items():
-        html += f"""
-            <div class="summary-item">
-                <span class="summary-label">{key.replace('_', ' ').title()}:</span>
-                <span>{value}</span>
-            </div>"""
-    return html
-
-
-def _generate_stats_cards(data):
-    """Generate HTML for statistics cards"""
+def _prepare_stats_cards(data):
+    """Prepare statistics cards data"""
     cards = []
     
     if data['vehicles_passed']:
         total_passed = data['vehicles_passed'][-1] if data['vehicles_passed'] else 0
-        cards.append(_stat_card("Total Vehicles Passed", total_passed))
+        cards.append({'label': 'Total Vehicles Passed', 'value': total_passed})
     
     if data['vehicles_present']:
         avg_present = sum(data['vehicles_present']) / len(data['vehicles_present']) if data['vehicles_present'] else 0
-        cards.append(_stat_card("Avg Vehicles Present", f"{avg_present:.1f}"))
+        cards.append({'label': 'Avg Vehicles Present', 'value': f"{avg_present:.1f}"})
     
     if data['traffic_density']:
         avg_density = sum(data['traffic_density']) / len(data['traffic_density']) if data['traffic_density'] else 0
-        cards.append(_stat_card("Avg Traffic Density", f"{avg_density:.3f}"))
+        cards.append({'label': 'Avg Traffic Density', 'value': f"{avg_density:.3f}"})
     
     if data['patterns']:
         unique_patterns = len(set(data['patterns']))
-        cards.append(_stat_card("Unique Patterns Used", unique_patterns))
+        cards.append({'label': 'Unique Patterns Used', 'value': unique_patterns})
     
-    return "\n".join(cards)
-
-
-def _stat_card(label, value):
-    """Generate a single stat card"""
-    return f"""
-        <div class="stat-card">
-            <div class="stat-value">{value}</div>
-            <div class="stat-label">{label}</div>
-        </div>"""
-
-
-def _generate_rules_table(rules_fired):
-    """Generate HTML table for rules fired statistics"""
-    if not rules_fired:
-        return "<p>No rule firing data available.</p>"
-    
-    rows = ""
-    for rule, count in sorted(rules_fired.items(), key=lambda x: x[1], reverse=True):
-        rows += f"""
-            <tr>
-                <td>{rule}</td>
-                <td>{count}</td>
-            </tr>"""
-    
-    return f"""
-        <table class="rules-table">
-            <thead>
-                <tr>
-                    <th>Rule</th>
-                    <th>Times Fired</th>
-                </tr>
-            </thead>
-            <tbody>
-                {rows}
-            </tbody>
-        </table>"""
+    return cards
 
 
 def _data_to_json(data):

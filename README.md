@@ -8,6 +8,9 @@ For **Artificial Intelligence** course, Software Engineering Program, KMITL.
 - Nay Chi Shunn Lei 66011090
 - Thura Aung 66011606
 
+# DEMO
+[![Watch the video](https://img.youtube.com/vi/ondSEdPLgzc/0.jpg)](https://youtu.be/ondSEdPLgzc)
+
 
 ## Introduction
 

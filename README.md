@@ -65,7 +65,10 @@ Download from [SWI-Prolog official website](https://www.swi-prolog.org/Download.
 
 ```bash
 # Clone the repository
-cd Traffic-Simulation-main
+git clone https://github.com/ThuraAung1601/traffic-light-control-agent.git
+
+# Change directory to the repository
+cd traffic-light-control-agent
 
 # Install required packages
 pip install pygame pyswip ZODB BTrees persistent transaction

@@ -154,10 +154,6 @@ def _prepare_stats_cards(data):
         avg_present = sum(data['vehicles_present']) / len(data['vehicles_present']) if data['vehicles_present'] else 0
         cards.append({'label': 'Avg Vehicles Present', 'value': f"{avg_present:.1f}"})
     
-    if data['traffic_density']:
-        avg_density = sum(data['traffic_density']) / len(data['traffic_density']) if data['traffic_density'] else 0
-        cards.append({'label': 'Avg Traffic Density', 'value': f"{avg_density:.3f}"})
-    
     if data['patterns']:
         unique_patterns = len(set(data['patterns']))
         cards.append({'label': 'Unique Patterns Used', 'value': unique_patterns})

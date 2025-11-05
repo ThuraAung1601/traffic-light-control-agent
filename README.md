@@ -69,6 +69,8 @@ cd Traffic-Simulation-main
 
 # Install required packages
 pip install pygame pyswip ZODB BTrees persistent transaction
+-OR-
+pip install -r requirements.txt
 ```
 
 ### Required Packages

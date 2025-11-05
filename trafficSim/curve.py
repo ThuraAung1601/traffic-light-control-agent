@@ -1,3 +1,4 @@
+# https://users.soe.ucsc.edu/~elkaim/Documents/Choi_WCECS2009_ICIAR.pdf
 def curve_points(start, end, control, resolution=5):
 	# If curve is a straight line
 	if (start[0] - end[0])*(start[1] - end[1]) == 0:

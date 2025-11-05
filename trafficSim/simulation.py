@@ -2,7 +2,7 @@ from .road import Road
 from copy import deepcopy
 from .vehicle_generator import VehicleGenerator
 from .traffic_signal import TrafficSignal
-import csv
+from .db_logger import ZODBLogger
 
 class Simulation:
     vehiclesPassed = 0;
@@ -27,6 +27,11 @@ class Simulation:
         self.traffic_signals = []
         self.iteration = 0      # n-th iteration (of sampling, if enabled)
         self.speed_multiplier = 1.0  # Speed control for simulation
+        
+        # Initialize ZODB logger
+        self.db_logger = None
+        self.enable_logging = True  # Flag to enable/disable logging
+        self.log_interval = 60  # Log every 60 frames (1 second at 60 FPS)
 
     def create_road(self, start, end):
         road = Road(start, end)
@@ -100,6 +105,10 @@ class Simulation:
         # Increment time
         self.t += self.dt
         self.frame_count += 1
+        
+        # Log data periodically to ZODB
+        if self.enable_logging and self.db_logger and self.frame_count % self.log_interval == 0:
+            self._log_current_state()
 
         # Stop at certain time in seconds (for sampling purposes. Comment out if not needed)
         self.time_limit = 300
@@ -112,10 +121,17 @@ class Simulation:
             print("Traffic Density: " + str(Simulation.vehiclesPresent / (len(self.roads) * self.roads[0].length)))
             print("Iteration: " + str(self.iteration))
 
-            # Add to CSV the time and vehicles passed
-            with open('data.csv', mode='a') as data_file:
-                data_writer = csv.writer(data_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-                data_writer.writerow([self.traffic_signals[0].cycle_length, Simulation.vehiclesPassed])
+            # Log to ZODB instead of CSV
+            if self.enable_logging and self.db_logger:
+                self.db_logger.log_simulation_data(
+                    time=self.t,
+                    iteration=self.iteration,
+                    cycle_length=self.traffic_signals[0].cycle_length if self.traffic_signals else 0,
+                    vehicles_passed=Simulation.vehiclesPassed,
+                    vehicles_present=Simulation.vehiclesPresent,
+                    vehicle_rate=Simulation.vehicleRate,
+                    traffic_density=Simulation.vehiclesPresent / (len(self.roads) * self.roads[0].length) if self.roads else 0
+                )
 
             # Reset time and vehicles passed
             self.t = 0.001
@@ -138,6 +154,101 @@ class Simulation:
 
     def resume(self):
         self.isPaused = False
+    
+    def start_logging(self, db_path='traffic_simulation.fs', **metadata):
+        """
+        Start ZODB logging session.
+        
+        Args:
+            db_path: Path to ZODB file storage
+            **metadata: Additional session metadata (e.g., vehicle_rate, description)
+        """
+        if self.db_logger is None:
+            self.db_logger = ZODBLogger(db_path)
+        
+        session_id = self.db_logger.start_session(**metadata)
+        print(f"Started ZODB logging session: {session_id}")
+        return session_id
+    
+    def stop_logging(self):
+        """Stop current logging session"""
+        if self.db_logger:
+            session_id = self.db_logger.end_session()
+            print(f"Stopped ZODB logging session: {session_id}")
+            return session_id
+        return None
+    
+    def close_logger(self):
+        """Close ZODB logger connection"""
+        if self.db_logger:
+            self.db_logger.close()
+            self.db_logger = None
+    
+    def _log_current_state(self):
+        """Log current simulation state to ZODB"""
+        if not self.db_logger:
+            return
+        
+        try:
+            # Collect traffic signal data
+            signal_data = {}
+            if self.traffic_signals:
+                signal = self.traffic_signals[0]
+                signal_data['pattern'] = signal.current_pattern if hasattr(signal, 'current_pattern') else 0
+                signal_data['control_type'] = signal.control_type if hasattr(signal, 'control_type') else 'unknown'
+                
+                # Get flow estimation data if available
+                if hasattr(signal, '_flow_estimator') and signal._flow_estimator:
+                    try:
+                        signal_data['flow_rates'] = signal._flow_estimator.get_incoming_rates()
+                        signal_data['turn_counts'] = signal._flow_estimator.get_turn_counts()
+                        signal_data['turn_ratios'] = signal._flow_estimator.get_turn_ratios()
+                    except Exception:
+                        pass
+                
+                # Get queue data
+                try:
+                    queues = signal._measure_queues()
+                    signal_data['queues'] = queues
+                except Exception:
+                    pass
+            
+            # Log comprehensive state
+            self.db_logger.log_simulation_data(
+                time=self.t,
+                frame_count=self.frame_count,
+                vehicles_passed=Simulation.vehiclesPassed,
+                vehicles_present=Simulation.vehiclesPresent,
+                vehicle_rate=Simulation.vehicleRate,
+                speed_multiplier=self.speed_multiplier,
+                **signal_data
+            )
+        except Exception as e:
+            print(f"Warning: Failed to log state: {e}")
+    
+    def log_signal_pattern_change(self, pattern, queues=None, turn_counts=None, 
+                                   flow_rates=None, rules_fired=None):
+        """
+        Log a traffic signal pattern change event.
+        
+        Args:
+            pattern: New pattern number
+            queues: Queue lengths by direction
+            turn_counts: Turn counts by direction
+            flow_rates: Flow rates by direction
+            rules_fired: List of rules that fired
+        """
+        if self.db_logger:
+            try:
+                self.db_logger.log_signal_state(
+                    pattern=pattern,
+                    queues=queues,
+                    turn_counts=turn_counts,
+                    flow_rates=flow_rates,
+                    rules_fired=rules_fired
+                )
+            except Exception as e:
+                print(f"Warning: Failed to log signal change: {e}")
     
     def set_speed(self, multiplier):
         """Set simulation speed multiplier. 1.0 = normal, 0.5 = half speed, 2.0 = double speed"""

@@ -2,6 +2,98 @@ import pygame
 from pygame import gfxdraw
 import numpy as np
 
+class Slider:
+    """A simple slider control for adjusting values"""
+    def __init__(self, x, y, width, height, min_val, max_val, current_val, label, format_str="{:.1f}"):
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.min_val = min_val
+        self.max_val = max_val
+        self.value = current_val
+        self.label = label
+        self.format_str = format_str
+        self.dragging = False
+        
+    def draw(self, screen, font):
+        # Draw slider background
+        pygame.draw.rect(screen, (200, 200, 200), (self.x, self.y, self.width, self.height))
+        
+        # Draw slider fill
+        fill_width = int((self.value - self.min_val) / (self.max_val - self.min_val) * self.width)
+        pygame.draw.rect(screen, (100, 150, 255), (self.x, self.y, fill_width, self.height))
+        
+        # Draw slider border
+        pygame.draw.rect(screen, (100, 100, 100), (self.x, self.y, self.width, self.height), 2)
+        
+        # Draw handle
+        handle_x = self.x + fill_width
+        pygame.draw.circle(screen, (50, 50, 50), (handle_x, self.y + self.height // 2), self.height // 2 + 2)
+        pygame.draw.circle(screen, (255, 255, 255), (handle_x, self.y + self.height // 2), self.height // 2 - 2)
+        
+        # Draw label and value
+        label_text = font.render(f"{self.label}: {self.format_str.format(self.value)}", True, (50, 50, 50))
+        screen.blit(label_text, (self.x, self.y - 25))
+        
+    def handle_event(self, event, mouse_pos):
+        """Handle mouse events for the slider"""
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            # Check if click is on slider
+            if (self.x <= mouse_pos[0] <= self.x + self.width and 
+                self.y <= mouse_pos[1] <= self.y + self.height):
+                self.dragging = True
+                self.update_value(mouse_pos[0])
+                return True
+        elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            self.dragging = False
+        elif event.type == pygame.MOUSEMOTION and self.dragging:
+            self.update_value(mouse_pos[0])
+            return True
+        return False
+    
+    def update_value(self, mouse_x):
+        """Update slider value based on mouse position"""
+        relative_x = max(0, min(self.width, mouse_x - self.x))
+        ratio = relative_x / self.width
+        self.value = self.min_val + ratio * (self.max_val - self.min_val)
+
+
+class Button:
+    """A simple button control"""
+    def __init__(self, x, y, width, height, label, color=(200, 50, 50), hover_color=(255, 100, 100)):
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.label = label
+        self.color = color
+        self.hover_color = hover_color
+        self.is_hovered = False
+        self.rect = pygame.Rect(x, y, width, height)
+    
+    def draw(self, screen, font):
+        # Draw button background
+        current_color = self.hover_color if self.is_hovered else self.color
+        pygame.draw.rect(screen, current_color, self.rect)
+        pygame.draw.rect(screen, (100, 100, 100), self.rect, 2)
+        
+        # Draw label
+        label_text = font.render(self.label, True, (255, 255, 255))
+        text_rect = label_text.get_rect(center=self.rect.center)
+        screen.blit(label_text, text_rect)
+    
+    def handle_event(self, event, mouse_pos):
+        """Handle mouse events for the button"""
+        # Update hover state
+        self.is_hovered = self.rect.collidepoint(mouse_pos)
+        
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if self.is_hovered:
+                return True
+        return False
+
+
 class Window:
     def __init__(self, sim, config={}):
         # Simulation to draw
@@ -29,6 +121,20 @@ class Window:
 
         # flip x axis
         self.flip_x = True
+        
+        # Control panel settings
+        self.show_control_panel = True
+        self.control_panel_height = 150
+        self.control_panel_bg = (240, 240, 245)
+        self.control_panel_border = (180, 180, 190)
+        
+        # Sliders for control panel
+        self.sliders = []
+        self.active_slider = None
+        
+        # End simulation button
+        self.end_button = None
+        self.end_button_rect = None
 
 
     def loop(self, loop=None):
@@ -44,6 +150,10 @@ class Window:
         # To draw text
         pygame.font.init()
         self.text_font = pygame.font.SysFont('Lucida Console', 16)
+        self.control_font = pygame.font.SysFont('Arial', 14)
+        
+        # Initialize control panel sliders
+        self._init_control_panel()
 
         # Draw loop
         running = True
@@ -64,8 +174,33 @@ class Window:
                 # Quit program if window is closed
                 if event.type == pygame.QUIT:
                     running = False
+                    
+                # Handle control panel slider and button events first
+                mouse_pos = pygame.mouse.get_pos()
+                slider_handled = False
+                button_clicked = False
+                
+                if self.show_control_panel and mouse_pos[1] < self.control_panel_height:
+                    # Check button click first
+                    if self.end_button and self.end_button.handle_event(event, mouse_pos):
+                        button_clicked = True
+                        self._end_simulation()
+                        running = False
+                        break
+                    
+                    # Then check sliders
+                    for slider in self.sliders:
+                        if slider.handle_event(event, mouse_pos):
+                            slider_handled = True
+                            self._update_from_sliders()
+                            break
+                
+                # Skip other mouse events if slider is being used
+                if (slider_handled or button_clicked) and event.type in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEMOTION):
+                    continue
+                    
                 # Handle keyboard events for speed control
-                elif event.type == pygame.KEYDOWN:
+                if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_PLUS or event.key == pygame.K_EQUALS:
                         # Speed up simulation
                         self.sim.speed_up()
@@ -90,11 +225,12 @@ class Window:
                 elif event.type == pygame.MOUSEBUTTONDOWN:
                     # If mouse button down
                     if event.button == 1:
-                        # Left click
+                        # Left click - only for dragging if not in control panel
                         x, y = pygame.mouse.get_pos()
-                        x0, y0 = self.offset
-                        self.mouse_last = (x-x0*self.zoom, y-y0*self.zoom)
-                        self.mouse_down = True
+                        if not (self.show_control_panel and y < self.control_panel_height):
+                            x0, y0 = self.offset
+                            self.mouse_last = (x-x0*self.zoom, y-y0*self.zoom)
+                            self.mouse_down = True
                     if event.button == 4:
                         # Mouse wheel up
                         self.zoom *=  (self.zoom**2+self.zoom/4+1) / (self.zoom**2+1)
@@ -122,9 +258,13 @@ class Window:
             return [self.convert(e[0], e[1]) for e in x]
         if isinstance(x, tuple):
             return self.convert(*x)
+        
+        # Adjust vertical center to account for control panel
+        vertical_offset = self.control_panel_height // 2 if self.show_control_panel else 0
+        
         return (
             int(self.width/2 + (x + self.offset[0])*self.zoom),
-            int(self.height/2 + (y + self.offset[1])*self.zoom)
+            int((self.height + vertical_offset)/2 + (y + self.offset[1])*self.zoom)
         )
 
     def inverse_convert(self, x, y=None):
@@ -138,6 +278,146 @@ class Window:
             int(-self.offset[1] + (y - self.height/2)/self.zoom)
         )
 
+
+    def _init_control_panel(self):
+        """Initialize control panel sliders"""
+        if not self.show_control_panel:
+            return
+            
+        # Get initial values from simulation
+        initial_speed = self.sim.speed_multiplier if hasattr(self.sim, 'speed_multiplier') else 1.0
+        initial_vehicle_rate = 400  # Default from main.py
+        
+        # Get vehicle generator to access current vehicle rate
+        if hasattr(self.sim, 'generators') and len(self.sim.generators) > 0:
+            initial_vehicle_rate = self.sim.generators[0].vehicle_rate
+        
+        # Get vehicle type probabilities from first generator
+        car_prob = 4
+        truck_prob = 1
+        bus_prob = 1
+        motorcycle_prob = 2
+        
+        if hasattr(self.sim, 'generators') and len(self.sim.generators) > 0:
+            vehicles = self.sim.generators[0].vehicles
+            if len(vehicles) >= 4:
+                car_prob = vehicles[0][0]
+                truck_prob = vehicles[1][0]
+                bus_prob = vehicles[2][0]
+                motorcycle_prob = vehicles[3][0]
+        
+        # Create sliders
+        slider_y = 50
+        slider_spacing = 180
+        slider_x = 20
+        
+        self.sliders = [
+            Slider(slider_x, slider_y, 150, 20, 0.1, 10.0, initial_speed, 
+                   "Speed", "{:.1f}x"),
+            Slider(slider_x + slider_spacing, slider_y, 150, 20, 50, 1000, initial_vehicle_rate,
+                   "Vehicle Rate", "{:.0f}/min"),
+            Slider(slider_x + slider_spacing * 2, slider_y, 150, 20, 0, 10, car_prob,
+                   "Car", "{:.0f}"),
+            Slider(slider_x + slider_spacing * 3, slider_y, 150, 20, 0, 10, truck_prob,
+                   "Truck", "{:.0f}"),
+            Slider(slider_x + slider_spacing * 4, slider_y, 150, 20, 0, 10, bus_prob,
+                   "Bus", "{:.0f}"),
+            Slider(slider_x + slider_spacing * 5, slider_y, 150, 20, 0, 10, motorcycle_prob,
+                   "Motorcycle", "{:.0f}"),
+        ]
+        
+        # Create End Simulation button
+        button_x = slider_x + slider_spacing * 6 + 50
+        button_y = slider_y - 5
+        self.end_button = Button(button_x, button_y, 150, 30, "End Simulation", 
+                                  color=(200, 50, 50), hover_color=(255, 80, 80))
+    
+    def _update_from_sliders(self):
+        """Update simulation parameters from slider values"""
+        if not self.sliders:
+            return
+        
+        # Update simulation speed
+        speed_slider = self.sliders[0]
+        if hasattr(self.sim, 'set_speed'):
+            self.sim.set_speed(speed_slider.value)
+        
+        # Update vehicle rate for all generators
+        rate_slider = self.sliders[1]
+        if hasattr(self.sim, 'generators'):
+            for gen in self.sim.generators:
+                gen.vehicle_rate = rate_slider.value
+        
+        # Update vehicle type probabilities
+        if hasattr(self.sim, 'generators') and len(self.sliders) >= 6:
+            car_weight = int(self.sliders[2].value)
+            truck_weight = int(self.sliders[3].value)
+            bus_weight = int(self.sliders[4].value)
+            motorcycle_weight = int(self.sliders[5].value)
+            
+            for gen in self.sim.generators:
+                if len(gen.vehicles) >= 4:
+                    gen.vehicles[0] = (car_weight, gen.vehicles[0][1])
+                    gen.vehicles[1] = (truck_weight, gen.vehicles[1][1])
+                    gen.vehicles[2] = (bus_weight, gen.vehicles[2][1])
+                    gen.vehicles[3] = (motorcycle_weight, gen.vehicles[3][1])
+    
+    def _end_simulation(self):
+        """End simulation and generate HTML report"""
+        print("\n=== Ending Simulation ===")
+        
+        # Stop logging and close database
+        if hasattr(self.sim, 'stop_logging'):
+            session_id = self.sim.stop_logging()
+            print(f"Session ended: {session_id}")
+        
+        # Generate HTML report
+        if hasattr(self.sim, 'db_logger') and self.sim.db_logger:
+            from .report_generator import generate_html_report
+            report_path = generate_html_report(self.sim.db_logger)
+            print(f"Report generated: {report_path}")
+            
+            # Open report in browser
+            import webbrowser
+            webbrowser.open('file://' + report_path)
+        
+        # Close logger
+        if hasattr(self.sim, 'close_logger'):
+            self.sim.close_logger()
+        
+        print("Simulation ended. Report opened in browser.")
+    
+    def _draw_control_panel(self):
+        """Draw the control panel at the top of the screen"""
+        if not self.show_control_panel:
+            return
+        
+        # Draw panel background
+        pygame.draw.rect(self.screen, self.control_panel_bg, 
+                        (0, 0, self.width, self.control_panel_height))
+        pygame.draw.line(self.screen, self.control_panel_border, 
+                        (0, self.control_panel_height), 
+                        (self.width, self.control_panel_height), 2)
+        
+        # Draw title
+        title = self.control_font.render("Simulation Controls", True, (50, 50, 50))
+        self.screen.blit(title, (self.width // 2 - title.get_width() // 2, 10))
+        
+        # Draw sliders
+        for slider in self.sliders:
+            slider.draw(self.screen, self.control_font)
+        
+        # Draw end button
+        if self.end_button:
+            mouse_pos = pygame.mouse.get_pos()
+            self.end_button.handle_event(pygame.event.Event(pygame.MOUSEMOTION), mouse_pos)
+            self.end_button.draw(self.screen, self.control_font)
+        
+        # Draw instructions
+        instructions = self.control_font.render(
+            "Keyboard: SPACE=Pause, +/-=Speed, R=Reset | Mouse: Drag to pan, Scroll to zoom",
+            True, (100, 100, 100))
+        self.screen.blit(instructions, (20, self.control_panel_height - 30))
 
     def background(self, r, g, b):
         """Fills screen with one color."""
@@ -353,23 +633,26 @@ class Window:
 
         text_signal_status = self.text_font.render(signal_status, False, (0, 0, 150))
         
-        # Expand white rectangle to accommodate more status info
-        self.screen.fill((255, 255, 255), (0, 0, 1400, 100))
-        self.screen.blit(text_fps, (0, 0))
-        self.screen.blit(text_frc, (100, 0))
-        self.screen.blit(text_vehicles_passed, (200, 0))
-        self.screen.blit(text_vehicles_present, (400, 0))
-        self.screen.blit(text_average_vehicles_per_minute, (630, 0))
-        self.screen.blit(text_total_vehicles, (0, 20))
-        self.screen.blit(text_vehicle_rate, (200, 20))
-        self.screen.blit(text_speed, (400, 20))
-        self.screen.blit(text_controls, (0, 40))
-        self.screen.blit(text_signal_status, (0, 60))
+        # Draw status at bottom of screen
+        status_height = 100
+        status_y = self.height - status_height
+        
+        # White rectangle at bottom for status info
+        self.screen.fill((255, 255, 255), (0, status_y, 1400, status_height))
+        self.screen.blit(text_fps, (0, status_y))
+        self.screen.blit(text_frc, (100, status_y))
+        self.screen.blit(text_vehicles_passed, (200, status_y))
+        self.screen.blit(text_vehicles_present, (400, status_y))
+        self.screen.blit(text_average_vehicles_per_minute, (630, status_y))
+        self.screen.blit(text_total_vehicles, (0, status_y + 20))
+        self.screen.blit(text_vehicle_rate, (200, status_y + 20))
+        self.screen.blit(text_speed, (400, status_y + 20))
+        self.screen.blit(text_signal_status, (0, status_y + 40))
 
         # Show rule status if available
         if rule_status:
             text_rule_status = self.text_font.render(rule_status, False, (150, 0, 150))
-            self.screen.blit(text_rule_status, (0, 80))
+            self.screen.blit(text_rule_status, (0, status_y + 60))
 
         if self.sim.isPaused:
             text_pause = self.text_font.render(f'PAUSED - Press Space to Resume', False, (255, 0, 0))
@@ -395,4 +678,7 @@ class Window:
 
         # Draw status info
         self.draw_status()
+        
+        # Draw control panel on top
+        self._draw_control_panel()
         

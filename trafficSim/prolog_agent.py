@@ -14,18 +14,43 @@ RULES_PATH_DEFAULT = os.path.join(MODULE_DIR, "rules.pl")
 
 class PrologTrafficAgent:
     """
-    Minimal wrapper around SWI-Prolog rules for a single intersection.
-
-    Exposes:
+    Prolog-based traffic signal control agent for a single intersection.
+    
+    Uses SWI-Prolog rules (rules.pl) for intelligent pattern selection based on:
+    - Queue lengths per direction (north, south, east, west)
+    - Turn demand ratios
+    - Incoming vs service rates
+    - Current pattern and timing state
+    
+    Rule System (9 core rules):
+    - Rule 1: Fallback pattern cycling
+    - Rule 2: Turn-heavy traffic management
+    - Rule 3: Balanced perpendicular traffic
+    - Rule 4: Main intelligent pattern selection (with 11 sub-rules)
+    - Rule 5: Pattern decision wrapper
+    - Rule 6: Early pattern termination
+    - Rule 7: Performance-based extension
+    - Rule 8: Time extension logic
+    - Rule 9: Maximum time safety override
+    
+    Public Methods:
+    State Management:
     - set_current_state(pattern, pattern_duration, greentime)
-    - update_queues({north,south,east,west})
+    - update_queues({north, south, east, west})
     - update_rates(incoming, service)
     - update_turn_demand(turn_counts)
+    
+    Decision Queries:
     - decide_next_pattern() -> int
     - should_change_early(pattern?) -> bool
-    - time_extension(elapsed_frames) -> int (0 = no extension)
+    - time_extension(elapsed_frames) -> int
     - max_time_override() -> bool
-    - serves_dirs(pattern) -> [dir,...]
+    - serves_dirs(pattern) -> List[str]
+    
+    Rule Tracking:
+    - get_fired_rules() -> List[Tuple[rule_id, count, description]]
+    - get_rule_summary() -> str
+    - clear_fired_rules()
     """
 
     def __init__(self, name: str, rules_path: Optional[str] = None):
@@ -37,25 +62,47 @@ class PrologTrafficAgent:
         self.prolog.consult(self.rules_path)
         # init defaults
         self.set_current_state(1, pattern_duration=240, greentime=0)
+
         # Rule tracking
         self.fired_rules = []
         self.rule_descriptions = {
-            1.1: "High-demand pattern selection (N-S)",
-            1.2: "High-demand pattern selection (E-W)", 
-            1.3: "High-demand pattern selection (single direction)",
-            1.4: "Moderate-demand pattern selection",
-            1.5: "Low-demand pattern selection",
-            2.1: "Best pattern search by movement type",
-            2.2: "Movement priority scoring",
-            3.1: "Balanced N-S corridor selection",
-            3.2: "Balanced E-W corridor selection", 
-            3.3: "Balanced multi-direction selection",
-            4.1: "Fallback: round-robin pattern cycling",
-            5.12: "Main pattern decision wrapper",
-            6.1: "Early pattern termination (no demand)",
-            7.1: "Pattern serving well (performance check)",
-            8.1: "Time extension decision (growing queue)",
-            9.1: "Maximum time safety override"
+            # Rule 1: Fallback pattern cycling
+            1: "Cycle pattern (fallback round-robin)",
+            
+            # Rule 2: Turn-heavy traffic management
+            2: "Turn-heavy traffic detected (Queue>8, TurnRatio>35%)",
+            
+            # Rule 3: Balanced perpendicular traffic
+            3: "Balanced cross-traffic (combination pattern)",
+            
+            # Rule 4: Main intelligent pattern selection
+            4: "Main pattern selection algorithm",
+            4.1: "Turn-heavy: North direction selected",
+            4.2: "Turn-heavy: South direction selected",
+            4.3: "Turn-heavy: East direction selected",
+            4.4: "Turn-heavy: West direction selected",
+            4.5: "Balanced traffic: combination pattern (TotalAll>8, balanced NS/EW)",
+            4.6: "Moderate balanced: combination pattern (NS>5, EW>5)",
+            4.7: "Strong N-S dominance: Full N-S pattern (11)",
+            4.8: "Strong E-W dominance: Full E-W pattern (12)",
+            4.9: "Moderate N-S dominance: Straight pattern (1)",
+            4.10: "Moderate E-W dominance: Straight pattern (2)",
+            4.11: "No clear dominance: Fallback to round-robin",
+            
+            # Rule 5: Pattern decision wrapper
+            5: "Pattern decision wrapper (reads queue facts from Python)",
+            
+            # Rule 6: Early termination
+            6: "Early pattern termination (no demand in served directions)",
+            
+            # Rule 7: Performance-based extension
+            7: "Pattern serving well (service > 70% of incoming rate)",
+            
+            # Rule 8: Time extension
+            8: "Time extension (queue growing, incoming > 80% of service)",
+            
+            # Rule 9: Safety override
+            9: "Maximum time safety override (greentime exceeded max)"
         }
 
     # --- internal helpers -------------------------------------------------
@@ -179,30 +226,3 @@ class PrologTrafficAgent:
             return [str(d) for d in dirs]
         # fallback: single atom
         return [str(dirs)]
-
-
-class SupervisorAgent:
-    def __init__(self, rules_path: Optional[str] = None):
-        if Prolog is None:
-            raise RuntimeError("pyswipl/SWI-Prolog not available")
-        self.prolog = Prolog()
-        self.rules_path = rules_path or RULES_PATH_DEFAULT
-        self.prolog.consult(self.rules_path)
-
-    def post_junction_state(self, junction_id: str, pattern: int, occupancy: float,
-                            counter: int = 0, greentime: int = 0, now: int = 0):
-        self.prolog.assertz(
-            f"working_memory(junction_state({junction_id},{int(pattern)},{int(counter)},{int(greentime)},{int(now)}))"
-        )
-        self.prolog.assertz(
-            f"working_memory(junction_occupancy({junction_id},{float(occupancy)}))"
-        )
-
-    def recommend(self) -> Optional[Tuple[str,int]]:
-        res = list(self.prolog.query("supervisor_recommendation(J,NP)"))
-        if res:
-            return str(res[0]["J"]), int(res[0]["NP"])
-        return None
-
-    def clear(self):
-        list(self.prolog.query("retractall(working_memory(_))."))

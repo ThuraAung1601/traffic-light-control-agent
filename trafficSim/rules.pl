@@ -10,7 +10,6 @@
 :- dynamic queue_service_rate/2.     % queue_service_rate(Direction, veh_per_step)
 :- dynamic downstream_size/2.        % downstream_size(Direction, Vehicles)
 :- dynamic downstream_maxsize/2.     % downstream_maxsize(Direction, Capacity)
-:- dynamic working_memory/1.         % used by supervisor helpers
 :- dynamic turning_cars/2.           % turning_cars(Direction, Count)
 :- dynamic turn_demand/3.            % turn_demand(Direction, TurnCount, QueueLength)
 :- dynamic intersection_occupancy/2. % intersection_occupancy(Junction, Count)
@@ -29,7 +28,7 @@ pattern_duration(240).
 track_rule(RuleNumber) :-
     get_time(Timestamp),
     assertz(rule_fired(RuleNumber, Timestamp)),
-    format('🔥 RULE ~w FIRED at time ~3f~n', [RuleNumber, Timestamp]).
+    format('RULE ~w FIRED at time ~3f~n', [RuleNumber, Timestamp]).
 
 % Get recently fired rules
 get_recent_rules(Rules) :-
@@ -45,41 +44,81 @@ cleanup_old_rules :-
 % =============================================================================
 % PATTERN DEFINITIONS (12-pattern system)
 % Directions: north | south | east | west
-% PAPER RULE 1: Pattern-based Traffic Light Control
+% Static pattern definitions (not tracked - just data)
 % =============================================================================
 
 % Which directions are served (any movement) by a pattern
-% PAPER RULE 1a: Basic pattern definitions for intersection control
-serves_dirs(1,  [north, south]).        % PAPER RULE 1a-1: N/S straight corridor
-serves_dirs(2,  [east, west]).          % PAPER RULE 1a-2: E/W straight corridor  
-serves_dirs(3,  [north]).               % PAPER RULE 1a-3: North straight/turns
-serves_dirs(4,  [south]).               % PAPER RULE 1a-4: South straight/turns
-serves_dirs(5,  [east]).                % PAPER RULE 1a-5: East straight/turns
-serves_dirs(6,  [west]).                % PAPER RULE 1a-6: West straight/turns
-serves_dirs(7,  [north, east]).         % PAPER RULE 1a-7: Combo (non-conflicting)
-serves_dirs(8,  [north, west]).         % PAPER RULE 1a-8: Combo (non-conflicting)
-serves_dirs(9,  [south, east]).         % PAPER RULE 1a-9: Combo (non-conflicting)
-serves_dirs(10, [south, west]).         % PAPER RULE 1a-10: Combo (non-conflicting)
-serves_dirs(11, [north, south]).        % PAPER RULE 1a-11: All N/S
-serves_dirs(12, [east, west]).          % PAPER RULE 1a-12: All E/W
+serves_dirs(1,  [north, south]).        % N/S straight corridor
+serves_dirs(2,  [east, west]).          % E/W straight corridor  
+serves_dirs(3,  [north]).               % North straight/turns
+serves_dirs(4,  [south]).               % South straight/turns
+serves_dirs(5,  [east]).                % East straight/turns
+serves_dirs(6,  [west]).                % West straight/turns
+serves_dirs(7,  [north, east]).         % Combo (non-conflicting)
+serves_dirs(8,  [north, west]).         % Combo (non-conflicting)
+serves_dirs(9,  [south, east]).         % Combo (non-conflicting)
+serves_dirs(10, [south, west]).         % Combo (non-conflicting)
+serves_dirs(11, [north, south]).        % All N/S
+serves_dirs(12, [east, west]).          % All E/W
 
-% PAPER RULE 1b: Movement permissions for each pattern (used by "best pattern" search)
-pattern_allows(3,  north, straight).  pattern_allows(3,  north, left).  pattern_allows(3,  north, right).
-pattern_allows(4,  south, straight).  pattern_allows(4,  south, left).  pattern_allows(4,  south, right).
-pattern_allows(5,  east,  straight).  pattern_allows(5,  east,  left).  pattern_allows(5,  east,  right).
-pattern_allows(6,  west,  straight).  pattern_allows(6,  west,  left).  pattern_allows(6,  west,  right).
-pattern_allows(7,  north, straight).  pattern_allows(7,  north, left).  pattern_allows(7,  north, right).
-pattern_allows(7,  east,  straight).  pattern_allows(7,  east,  left).  pattern_allows(7,  east,  right).
-pattern_allows(8,  north, straight).  pattern_allows(8,  north, left).  pattern_allows(8,  north, right).
-pattern_allows(8,  west,  straight).  pattern_allows(8,  west,  left).  pattern_allows(8,  west,  right).
-pattern_allows(9,  south, straight).  pattern_allows(9,  south, left).  pattern_allows(9,  south, right).
-pattern_allows(9,  east,  straight).  pattern_allows(9,  east,  left).  pattern_allows(9,  east,  right).
-pattern_allows(10, south, straight).  pattern_allows(10, south, left).  pattern_allows(10, south, right).
-pattern_allows(10, west,  straight).  pattern_allows(10, west,  left).  pattern_allows(10, west,  right).
-pattern_allows(11, north, straight).  pattern_allows(11, north, left).  pattern_allows(11, north, right).
-pattern_allows(11, south, straight).  pattern_allows(11, south, left).  pattern_allows(11, south, right).
-pattern_allows(12, east,  straight).  pattern_allows(12, east,  left).  pattern_allows(12, east,  right).
-pattern_allows(12, west,  straight).  pattern_allows(12, west,  left).  pattern_allows(12, west,  right).
+% Movement permissions for each pattern (used by "best pattern" search)
+pattern_allows(3,  north, straight).  
+pattern_allows(3,  north, left).  
+pattern_allows(3,  north, right).
+
+pattern_allows(4,  south, straight).  
+pattern_allows(4,  south, left).  
+pattern_allows(4,  south, right).
+
+pattern_allows(5,  east,  straight).  
+pattern_allows(5,  east,  left).  
+pattern_allows(5,  east,  right).
+
+pattern_allows(6,  west,  straight).  
+pattern_allows(6,  west,  left).  
+pattern_allows(6,  west,  right).
+
+pattern_allows(7,  north, straight).  
+pattern_allows(7,  north, left).  
+pattern_allows(7,  north, right).
+pattern_allows(7,  east,  straight).  
+pattern_allows(7,  east,  left).  
+pattern_allows(7,  east,  right).
+
+pattern_allows(8,  north, straight).  
+pattern_allows(8,  north, left).  
+pattern_allows(8,  north, right).
+pattern_allows(8,  west,  straight).  
+pattern_allows(8,  west,  left).  
+pattern_allows(8,  west,  right).
+
+pattern_allows(9,  south, straight).  
+pattern_allows(9,  south, left).  
+pattern_allows(9,  south, right).
+pattern_allows(9,  east,  straight).  
+pattern_allows(9,  east,  left).  
+pattern_allows(9,  east,  right).
+
+pattern_allows(10, south, straight).  
+pattern_allows(10, south, left).  
+pattern_allows(10, south, right).
+pattern_allows(10, west,  straight).  
+pattern_allows(10, west,  left).  
+pattern_allows(10, west,  right).
+
+pattern_allows(11, north, straight).  
+pattern_allows(11, north, left).  
+pattern_allows(11, north, right).
+pattern_allows(11, south, straight).  
+pattern_allows(11, south, left).  
+pattern_allows(11, south, right).
+
+pattern_allows(12, east,  straight).  
+pattern_allows(12, east,  left).  
+pattern_allows(12, east,  right).
+pattern_allows(12, west,  straight).  
+pattern_allows(12, west,  left).  
+pattern_allows(12, west,  right).
 
 % =============================================================================
 % SAFE DEFAULTS AND UTILITY PREDICATES
@@ -116,21 +155,19 @@ downstream_space(Dir, Space) :-
 downstream_space(_, 9999).
 
 % =============================================================================
-% CORE DECISION LOGIC
-% PAPER RULE 2: Intelligent Pattern Selection Based on Traffic Demand
+% CORE DECISION LOGIC - INTELLIGENT TRAFFIC CONTROL RULES
 % =============================================================================
 
-% PAPER RULE 2a: Cycle through patterns when no intelligent choice available
+% RULE 1: Cycle through patterns (fallback when no intelligent choice)
 cycle_pattern(P, Next) :- 
-    track_rule(2.1),  % Track rule firing
+    track_rule(1),
     (P >= 12 -> Next = 1 ; Next is P + 1).
 
-% PAPER RULE 3: Turn-Heavy Traffic Management
-% PAPER RULE 3a: Select dedicated turn patterns for high turn demand
+% RULE 2: Turn-heavy traffic management
 select_turn_pattern(Queue, TurnRatio, Dir, Pattern) :-
     Queue > 8,
     TurnRatio > 0.35,
-    track_rule(3.1),  % Track rule firing
+    track_rule(2),
     turn_pattern_for_direction(Dir, Pattern).
 
 turn_pattern_for_direction(north, 3).
@@ -138,20 +175,18 @@ turn_pattern_for_direction(south, 4).
 turn_pattern_for_direction(east,  5).
 turn_pattern_for_direction(west,  6).
 
-% PAPER RULE 4: Balanced Perpendicular Traffic Management
-% PAPER RULE 4a: Combination patterns for balanced cross-traffic
+% RULE 3: Balanced perpendicular traffic (combination patterns)
 select_combination_pattern(QN, QS, QE, QW, Pattern) :-
-    track_rule(4.1),  % Track rule firing
+    track_rule(3),
     (QN >= QS, QE >= QW -> Pattern = 7
     ; QN >= QS, QW >= QE -> Pattern = 8
     ; QS >= QN, QE >= QW -> Pattern = 9
     ; QS >= QN, QW >= QE -> Pattern = 10
     ; Pattern = 11).
 
-% PAPER RULE 5: Main Intelligent Pattern Selection Algorithm
-% This is the core algorithm from the paper for traffic-responsive control
+% RULE 4: Main intelligent pattern selection algorithm
 select_next_pattern(CurrentPattern, QN, QS, QE, QW, TN, TS, TE, TW, NextPattern) :-
-    track_rule(5.0),  % Track main rule firing
+    track_rule(4),
     TotalNS is QN + QS,
     TotalEW is QE + QW,
     TotalAll is TotalNS + TotalEW,
@@ -161,29 +196,29 @@ select_next_pattern(CurrentPattern, QN, QS, QE, QW, TN, TS, TE, TW, NextPattern)
     (QE > 0 -> RE is TE / QE ; RE = 0),
     (QW > 0 -> RW is TW / QW ; RW = 0),
 
-    % PAPER RULE 5a: Priority for turn-heavy directions
-    ( select_turn_pattern(QN, RN, north, NextPattern) -> track_rule(5.1)
-    ; select_turn_pattern(QS, RS, south, NextPattern) -> track_rule(5.2)
-    ; select_turn_pattern(QE, RE, east,  NextPattern) -> track_rule(5.3)
-    ; select_turn_pattern(QW, RW, west,  NextPattern) -> track_rule(5.4)
-    % PAPER RULE 5b: Balanced traffic gets combination patterns
+    % Priority for turn-heavy directions
+    ( select_turn_pattern(QN, RN, north, NextPattern) -> track_rule(4.1)
+    ; select_turn_pattern(QS, RS, south, NextPattern) -> track_rule(4.2)
+    ; select_turn_pattern(QE, RE, east,  NextPattern) -> track_rule(4.3)
+    ; select_turn_pattern(QW, RW, west,  NextPattern) -> track_rule(4.4)
+    % Balanced traffic gets combination patterns
     ; (TotalAll > 8, abs(TotalNS - TotalEW) < 8) ->
-        (select_combination_pattern(QN, QS, QE, QW, NextPattern), track_rule(5.5))
+        (select_combination_pattern(QN, QS, QE, QW, NextPattern), track_rule(4.5))
     ; (TotalNS > 5, TotalEW > 5) ->
-        (select_combination_pattern(QN, QS, QE, QW, NextPattern), track_rule(5.6))
-    % PAPER RULE 5c: Axis dominance gets full axis patterns
-    ; TotalNS > TotalEW * 1.5, TotalNS > 10 -> (NextPattern = 11, track_rule(5.7))
-    ; TotalEW > TotalNS * 1.5, TotalEW > 10 -> (NextPattern = 12, track_rule(5.8))
-    % PAPER RULE 5d: Moderate dominance gets straight patterns
-    ; TotalNS > TotalEW -> (NextPattern = 1, track_rule(5.9))
-    ; TotalEW > TotalNS -> (NextPattern = 2, track_rule(5.10))
-    % PAPER RULE 5e: Fallback to round-robin
-    ; (cycle_pattern(CurrentPattern, NextPattern), track_rule(5.11))
+        (select_combination_pattern(QN, QS, QE, QW, NextPattern), track_rule(4.6))
+    % Axis dominance gets full axis patterns
+    ; TotalNS > TotalEW * 1.5, TotalNS > 10 -> (NextPattern = 11, track_rule(4.7))
+    ; TotalEW > TotalNS * 1.5, TotalEW > 10 -> (NextPattern = 12, track_rule(4.8))
+    % Moderate dominance gets straight patterns
+    ; TotalNS > TotalEW -> (NextPattern = 1, track_rule(4.9))
+    ; TotalEW > TotalNS -> (NextPattern = 2, track_rule(4.10))
+    % Fallback to round-robin
+    ; (cycle_pattern(CurrentPattern, NextPattern), track_rule(4.11))
     ).
 
-% Wrapper that reads facts asserted from Python
+% RULE 5: Pattern decision wrapper (reads queue facts from Python)
 decide_next_pattern(CurrentPattern, NextPattern) :-
-    track_rule(5.12),  % Track wrapper call
+    track_rule(5),
     queue_for_direction(north, QN),
     queue_for_direction(south, QS),
     queue_for_direction(east,  QE),
@@ -194,27 +229,24 @@ decide_next_pattern(CurrentPattern, NextPattern) :-
     (turn_demand(west,  TW, _) -> true ; TW = 0),
     select_next_pattern(CurrentPattern, QN, QS, QE, QW, TN, TS, TE, TW, NextPattern).
 
-% PAPER RULE 6: Early Pattern Termination
-% PAPER RULE 6a: Switch early when no demand in served directions
+% RULE 6: Early pattern termination (no demand in served directions)
 should_change_early(Pattern) :-
-    track_rule(6.1),  % Track rule firing
+    track_rule(6),
     serves_dirs(Pattern, Dirs),
     forall(member(D, Dirs), (queue_for_direction(D, Q), Q =:= 0)).
 
-% PAPER RULE 7: Performance-Based Pattern Extension
-% PAPER RULE 7a: Pattern is serving demand well - keep it longer
+% RULE 7: Performance-based pattern extension (pattern serving well)
 pattern_serving_well(Pattern) :-
-    track_rule(7.1),  % Track rule firing
+    track_rule(7),
     serves_dirs(Pattern, Dirs),
     member(D, Dirs),
     queue_for_direction(D, Q), Q > 5,
     in_rate(D, I), service_rate(D, S),
     S > I * 0.7, !.
 
-% PAPER RULE 8: Time Extension Logic
-% PAPER RULE 8a: Extend green time when queue is growing faster than service
+% RULE 8: Time extension logic (queue growing faster than service)
 time_extension_decision(Pattern, ElapsedFrames, ExtendBy) :-
-    track_rule(8.1),  % Track rule firing
+    track_rule(8),
     ElapsedFrames > 0, ElapsedFrames =< 60,
     pick_dirs(Pattern, D1, _),
     queue_for_direction(D1, Q1), Q1 > 8,
@@ -223,10 +255,9 @@ time_extension_decision(Pattern, ElapsedFrames, ExtendBy) :-
     state_greentime(Tg), max_greentime(Tmax), Tg < Tmax,
     greentime_extension(ExtendBy).
 
-% PAPER RULE 9: Maximum Time Safety Override
-% PAPER RULE 9a: Force pattern change when maximum time exceeded
+% RULE 9: Maximum time safety override (force pattern change)
 max_time_override :- 
-    track_rule(9.1),  % Track rule firing
+    track_rule(9),
     state_greentime(Tg), max_greentime(Tmax), Tg > Tmax.
 
 % Find best pattern that serves a direction
@@ -242,43 +273,3 @@ find_best_pattern_for_direction(Dir, Pattern) :-
 find_alternative_pattern(AvoidDir, Pattern) :-
     serves_dirs(Pattern, Dirs),
     \+ member(AvoidDir, Dirs).
-
-% =============================================================================
-% SUPERVISOR HELPERS (deadlock detection and recommendation)
-% =============================================================================
-
-all_current_full_flows(Flow_List) :-
-    findall([Junction, Pattern, Occupancy],
-            ( working_memory(junction_state(Junction, Pattern, _, _, _)),
-              working_memory(junction_occupancy(Junction, Occupancy)),
-              Occupancy > 0.6),
-            Flow_List),
-    length(Flow_List, N), N >= 3.
-
-possible_loops(Flow_List, [Flow_List]) :-
-    length(Flow_List, N), N >= 3.
-
-% Choose weakest (min occupancy) junction
-weakest_junction([[J,O]|Rest], BestJ, BestO) :-
-    ( Rest = [] -> BestJ = J, BestO = O
-    ; weakest_junction(Rest, RJ, RO),
-      (O =< RO -> BestJ = J, BestO = O ; BestJ = RJ, BestO = RO)
-    ).
-
-% Recommend a pattern change for weakest junction (pure, no asserts)
-supervisor_recommendation(WeakestJunction, NewPattern) :-
-    all_current_full_flows(Flow_List),
-    possible_loops(Flow_List, _),
-    findall([J,Occ],
-            (member([J,_,Occ], Flow_List)),
-            Pairs),
-    weakest_junction(Pairs, WeakestJunction, _),
-    % read current pattern from working_memory
-    working_memory(junction_state(WeakestJunction, OldPattern, _, _, _)),
-    select_alternative_pattern(WeakestJunction, OldPattern, NewPattern).
-
-% Select an alternative pattern (switch axis or next)
-select_alternative_pattern(_, Old, New) :-
-    Old < 6, !, New is Old + 6.
-select_alternative_pattern(_, Old, New) :-
-    New is ((Old + 1) mod 12) + 1.

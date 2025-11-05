@@ -1,5 +1,6 @@
 import random
 from typing import List, Dict
+from collections import deque
 
 try:
     # Local optional import; falls back to classic mode if missing
@@ -8,6 +9,15 @@ try:
 except Exception:
     PrologTrafficAgent = None  # type: ignore
     _PROLOG_AVAILABLE = False
+
+try:
+    from .inductive_loop import FlowEstimator, InductiveLoopDetector
+    _FLOW_ESTIMATOR_AVAILABLE = True
+except Exception:
+    FlowEstimator = None  # type: ignore
+    InductiveLoopDetector = None  # type: ignore
+    _FLOW_ESTIMATOR_AVAILABLE = False
+
 
 class TrafficSignal:
     def __init__(self, roads, config={}):
@@ -42,6 +52,9 @@ class TrafficSignal:
         self._frames_left = 0
         self._elapsed_in_pattern = 0
         self._current_cycle = (True,) * max(1, len(self.roads))
+        
+        # Flow estimation using inductive loop detectors
+        self._flow_estimator = None  # Will be initialized in _init_control_mode after roads are set up
 
     def init_properties(self):
         for i in range(len(self.roads)):
@@ -59,6 +72,19 @@ class TrafficSignal:
                 self._elapsed_in_pattern = 0
                 # initialize cycle according to pattern
                 self._apply_pattern(self._pattern)
+                
+                # Initialize flow estimator with inductive loop detectors
+                if _FLOW_ESTIMATOR_AVAILABLE:
+                    self._flow_estimator = FlowEstimator()
+                    # Add detectors for inbound roads (one per direction)
+                    # Direction mapping: 0:west, 1:south, 2:east, 3:north
+                    direction_names = ['west', 'south', 'east', 'north']
+                    for i, direction in enumerate(direction_names):
+                        if i < len(self.roads) and len(self.roads[i]) > 0:
+                            # Use the first road in each group as the detection road
+                            inbound_road = self.roads[i][0]
+                            self._flow_estimator.add_detector(direction, inbound_road)
+                            
             except Exception:
                 # fallback to rule mode if prolog fails
                 self.control = 'rule'
@@ -93,11 +119,38 @@ class TrafficSignal:
     
     def update(self, sim):
         if self.control == 'prolog' and len(self.roads) >= 4 and self._prolog_agent is not None:
-            # Update queues from roads and step prolog-driven control
+            # Measure queue lengths
             queues = self._measure_queues()
             self._prolog_agent.update_queues(queues)
-            # simple: zero rates unless you add estimation
-            self._prolog_agent.update_rates({d: 0.0 for d in queues}, {d: 0.0 for d in queues})
+            
+            # Update flow estimator with inductive loop detectors
+            if self._flow_estimator is not None:
+                # Get current signal states
+                signal_state = {
+                    'west': self._current_cycle[0],
+                    'south': self._current_cycle[1],
+                    'east': self._current_cycle[2],
+                    'north': self._current_cycle[3]
+                }
+                self._flow_estimator.update(sim.t, signal_state)
+                
+                # Get flow estimates from detectors
+                incoming_rates = self._flow_estimator.get_incoming_rates()
+                service_rates = self._flow_estimator.get_service_rates()
+                turn_counts = self._flow_estimator.get_turn_counts()
+                
+                # Update prolog agent with real measurements
+                self._prolog_agent.update_rates(incoming_rates, service_rates)
+                self._prolog_agent.update_turn_demand(turn_counts)
+            else:
+                # Fallback to zeros if flow estimator not available
+                self._prolog_agent.update_rates(
+                    {d: 0.0 for d in queues}, 
+                    {d: 0.0 for d in queues}
+                )
+                self._prolog_agent.update_turn_demand(
+                    {d: 0 for d in queues}
+                )
 
             self._frames_left -= 1
             self._elapsed_in_pattern += 1
@@ -113,8 +166,48 @@ class TrafficSignal:
                 # decide next pattern
                 try:
                     next_p = self._prolog_agent.decide_next_pattern()
-                except Exception:
+                    
+                    # Get flow data for debug output
+                    if self._flow_estimator is not None:
+                        turn_counts_debug = self._flow_estimator.get_turn_counts()
+                        turn_ratios = self._flow_estimator.get_turn_ratios()
+                        incoming = self._flow_estimator.get_incoming_rates()
+                        print(f"\n[Traffic Signal] Pattern {self._pattern} -> {next_p}")
+                        print(f"  Queues: N={queues['north']:2d}, S={queues['south']:2d}, "
+                              f"E={queues['east']:2d}, W={queues['west']:2d}")
+                        print(f"  Turns:  N={turn_counts_debug.get('north', 0):2d}, "
+                              f"S={turn_counts_debug.get('south', 0):2d}, "
+                              f"E={turn_counts_debug.get('east', 0):2d}, "
+                              f"W={turn_counts_debug.get('west', 0):2d}")
+                        print(f"  TurnRatio: N={turn_ratios.get('north', 0):.2f}, "
+                              f"S={turn_ratios.get('south', 0):.2f}, "
+                              f"E={turn_ratios.get('east', 0):.2f}, "
+                              f"W={turn_ratios.get('west', 0):.2f}")
+                        print(f"  InFlow: N={incoming.get('north', 0):.3f}, "
+                              f"S={incoming.get('south', 0):.3f}, "
+                              f"E={incoming.get('east', 0):.3f}, "
+                              f"W={incoming.get('west', 0):.3f} veh/s")
+                except Exception as e:
+                    print(f"[Traffic Signal] Error in pattern decision: {e}")
                     next_p = self._pattern % 12 + 1
+                
+                # Log pattern change to ZODB
+                if hasattr(sim, 'log_signal_pattern_change'):
+                    try:
+                        rules_fired = []
+                        if self._prolog_agent:
+                            rules_fired = self._prolog_agent.get_fired_rules()
+                        
+                        sim.log_signal_pattern_change(
+                            pattern=int(next_p),
+                            queues=queues,
+                            turn_counts=turn_counts_debug if self._flow_estimator else None,
+                            flow_rates=incoming if self._flow_estimator else None,
+                            rules_fired=rules_fired
+                        )
+                    except Exception as log_error:
+                        pass  # Don't let logging errors interrupt simulation
+                
                 self._pattern = int(next_p)
                 # reset timers
                 self._frames_left = self._prolog_agent.get_pattern_duration()

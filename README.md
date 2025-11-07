@@ -208,4 +208,5 @@ Open source - feel free to use and modify for educational and research purposes.
 ## References
 - [1] Visit Hirankitti and Jaturapith Krohkaew,  "An Agent Approach for Intelligent Traffic-Light Control," First Asia International Conference on Modelling & Simulation (AMS'07), Phyket, Thailand, 2007, pp. 496-501, doi: 10.1109/AMS.2007.11.
 - [2] Visit Hirankitti, Jaturapith Krohkaew, and Chris Hogger, “A Multi-Agent Approach for Intelligent Traffic-Light Control,” Proceedings of the World Congress on Engineering 2007, London, U.K.
-- For simulation: https://muddy-vulture-d01.notion.site/The-Modelling-of-Simpang-Empat-Pingit-Crossroad-a7f1a8adf0d44317aebff998149494b9 
+- For simulation: https://github.com/BilHim/trafficSimulator/tree/main
+- IDM: https://github.com/tangwing/TrafficSimulation 
